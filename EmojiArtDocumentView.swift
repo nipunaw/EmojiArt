@@ -24,7 +24,7 @@ struct EmojiArtDocumentView: View {
             ZStack {
                 Color.yellow
                 ForEach(document.emojis) { emoji in
-                    Text(emoji)
+                    Text(emoji.text)
                         .font(.system(size: fontSize(for: emoji)))
                         .position(position(for: emoji, in: geometry))
                 }
@@ -36,7 +36,7 @@ struct EmojiArtDocumentView: View {
     }
 
     var palette: some View {
-        ScrollingEmojisView(emojis: testemojis)
+        ScrollingEmojisView(emojis: testEmojis)
             .font(.system(size: defaultEmojiFontSize))
     }
 
