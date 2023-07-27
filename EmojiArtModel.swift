@@ -25,7 +25,7 @@ struct EmojiArtModel {
         var x: Int // offset from center
         var y: Int // offset from center
         var size: Int
-        var id: Int
+        let id: Int
         
         fileprivate init(text: String, x: Int, y: Int, size: Int, id: Int) { //Anyone in this file can use this, but nobody else (only we can create emojis)
             self.text = text
