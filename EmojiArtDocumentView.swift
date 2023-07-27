@@ -36,6 +36,8 @@ struct EmojiArtDocumentView: View {
                             .font(.system(size: fontSize(for: emoji)))
                             .scaleEffect(zoomScale)
                             .position(position(for: emoji, in: geometry))
+                            .gesture(tapToToggleSelect(for: emoji))
+                            .border(Color.gray, width: (selectedEmojis.contains(emoji) ? 1 : 0))
                     }
                 }
             }
@@ -43,7 +45,7 @@ struct EmojiArtDocumentView: View {
             .onDrop(of: [.plainText,.url,.image], isTargeted: nil) { providers, location in
                 drop(providers: providers, at: location, in: geometry)
             }
-            .gesture(panGesture().simultaneously(with: zoomGesture()))
+            .gesture(panGesture().simultaneously(with: zoomGesture()).simultaneously(with: tapToDeselect()))
         }
     }
 
@@ -87,7 +89,7 @@ struct EmojiArtDocumentView: View {
     }
     
     private func fontSize(for emoji: EmojiArtModel.Emoji) -> CGFloat {
-        CGFloat(emoji.size)
+        CGFloat(emoji.size) * (selectedEmojis.contains(emoji) ? emojiScale : 1)
     }
     
     private func convertToEmojiCoordinates(_ location: CGPoint, in geometry: GeometryProxy) -> (x: Int, y: Int) {
@@ -107,13 +109,18 @@ struct EmojiArtDocumentView: View {
         )
     }
     
-        // MARK: - Zooming
+    // MARK: - Zooming
     
     @State private var steadyStateZoomScale: CGFloat = 1
+    @State private var emojiStateZoomScale: CGFloat = 1
     @GestureState private var gestureZoomScale: CGFloat = 1
     
     private var zoomScale: CGFloat {
         steadyStateZoomScale * gestureZoomScale
+    }
+
+    private var emojiScale: CGFloat {
+        emojiStateZoomScale * gestureZoomScale
     }
     
     private func zoomGesture() -> some Gesture {
@@ -122,7 +129,12 @@ struct EmojiArtDocumentView: View {
                 gestureZoomScale = latestGestureScale
             }
             .onEnded { gestureScaleAtEnd in
-                steadyStateZoomScale *= gestureScaleAtEnd
+                if selectedEmojis.isEmpty {
+                    steadyStateZoomScale *= gestureScaleAtEnd
+                } else {
+                    emojiStateZoomScale *= gestureScaleAtEnd
+                }
+                
             }
     }
     
@@ -160,6 +172,26 @@ struct EmojiArtDocumentView: View {
             }
             .onEnded { finalDragGestureValue in
                 steadyStatePanOffset = steadyStatePanOffset + (finalDragGestureValue.translation / zoomScale)
+            }
+    }
+
+    // MARK: - Selection/Deselection
+
+    @State private var selectedEmojis = Set<EmojiArtModel.Emoji>()
+
+    private func tapToToggleSelect(for emoji: EmojiArtModel.Emoji) -> some Gesture {
+        TapGesture(count: 1)
+            .onEnded {
+                if selectedEmojis.remove(emoji) == nil {
+                    selectedEmojis.insert(emoji)
+                }
+            }
+    }
+
+    private func tapToDeselect() -> some Gesture {
+        TapGesture(count: 1)
+            .onEnded {
+                selectedEmojis = Set<EmojiArtModel.Emoji>()
             }
     }
 
