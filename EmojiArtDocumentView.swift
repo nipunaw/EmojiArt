@@ -16,6 +16,7 @@ struct EmojiArtDocumentView: View {
         VStack(spacing: 0) {
             documentBody
             palette
+            deleteEmojiButton
         }
     }
 
@@ -32,13 +33,14 @@ struct EmojiArtDocumentView: View {
                     ProgressView().scaleEffect(2)
                 } else {
                     ForEach(document.emojis) { emoji in
-                        Text(emoji.text)
-                            .font(.system(size: fontSize(for: emoji)))
-                            .border(.gray, width: (selectedEmojis.contains(emoji.id) ? 1 : 0))
-                            .scaleEffect(calculateEmojiScale(for: emoji) * zoomScale)
-                            .position(position(for: emoji, in: geometry))
-                            .gesture(tapToToggleSelect(for: emoji))
-                            
+                        if !emoji.isRemoved {
+                            Text(emoji.text)
+                                .font(.system(size: fontSize(for: emoji)))
+                                .border(.gray, width: (selectedEmojiIDs.contains(emoji.id) ? 1 : 0))
+                                .scaleEffect(calculateEmojiScale(for: emoji) * zoomScale)
+                                .position(position(for: emoji, in: geometry))
+                                .gesture(tapToToggleSelect(for: emoji).simultaneously(with: dragEmojiGesture(for: emoji)))
+                        }
                     }
                 }
             }
@@ -53,6 +55,15 @@ struct EmojiArtDocumentView: View {
     var palette: some View {
         ScrollingEmojisView(emojis: testEmojis)
             .font(.system(size: defaultEmojiFontSize))
+    }
+    
+    var deleteEmojiButton: some View {
+        Button("Delete Selected Emojis") {
+            for id in selectedEmojiIDs {
+                document.removeEmoji(with: id)
+                selectedEmojiIDs.remove(id)
+            }
+        }.disabled(selectedEmojiIDs.isEmpty)
     }
 
 
@@ -86,7 +97,16 @@ struct EmojiArtDocumentView: View {
     // MARK: - Positioning/Sizing Emoji
     
     private func position(for emoji: EmojiArtModel.Emoji, in geometry: GeometryProxy) -> CGPoint {
-        convertFromEmojiCoordinates((emoji.x, emoji.y), in: geometry)
+        var x: Int
+        var y: Int
+        if selectedEmojiIDs.contains(emoji.id) {
+            x = emoji.x + Int(emojiGestureDragOffset.width)
+            y = emoji.y + Int(emojiGestureDragOffset.height)
+        } else {
+            x = emoji.x
+            y = emoji.y
+        }
+        return convertFromEmojiCoordinates((x, y), in: geometry)
     }
     
     private func fontSize(for emoji: EmojiArtModel.Emoji) -> CGFloat {
@@ -116,11 +136,11 @@ struct EmojiArtDocumentView: View {
     @GestureState private var gestureZoomScale: CGFloat = 1
     
     private var zoomScale: CGFloat {
-        steadyStateZoomScale * (selectedEmojis.isEmpty ? gestureZoomScale : 1)
+        steadyStateZoomScale * (selectedEmojiIDs.isEmpty ? gestureZoomScale : 1)
     }
     
     private func calculateEmojiScale(for emoji: EmojiArtModel.Emoji) -> CGFloat {
-        if selectedEmojis.contains(emoji.id) {
+        if selectedEmojiIDs.contains(emoji.id) {
             return gestureZoomScale
         }
         return CGFloat(1)
@@ -132,11 +152,11 @@ struct EmojiArtDocumentView: View {
                 gestureZoomScale = latestGestureScale
             }
             .onEnded { gestureScaleAtEnd in
-                if selectedEmojis.isEmpty {
+                if selectedEmojiIDs.isEmpty {
                     steadyStateZoomScale *= gestureScaleAtEnd
                 } else {
                     for emoji in document.emojis {
-                        if selectedEmojis.contains(emoji.id) {
+                        if selectedEmojiIDs.contains(emoji.id) {
                             document.scaleEmoji(emoji, by: gestureScaleAtEnd)
                         }
                     }
@@ -167,12 +187,17 @@ struct EmojiArtDocumentView: View {
     
     @State private var steadyStatePanOffset: CGSize = CGSize.zero
     @GestureState private var gesturePanOffset: CGSize = CGSize.zero
+    @GestureState private var emojiGestureDragOffset: CGSize = CGSize.zero
     
     private var panOffset: CGSize {
         (steadyStatePanOffset + gesturePanOffset) * zoomScale
     }
     
-    private func panGesture() -> some Gesture {
+    private var isEmojiDragging: Bool {
+        emojiGestureDragOffset != CGSize.zero
+    }
+    
+    private func panGesture() -> some Gesture { // Only triggers if you're dragging in document area
         DragGesture()
             .updating($gesturePanOffset) { latestDragGestureValue, gesturePanOffset, _ in
                 gesturePanOffset = latestDragGestureValue.translation / zoomScale
@@ -181,16 +206,40 @@ struct EmojiArtDocumentView: View {
                 steadyStatePanOffset = steadyStatePanOffset + (finalDragGestureValue.translation / zoomScale)
             }
     }
+    
+    private func dragEmojiGesture(for emoji: EmojiArtModel.Emoji) -> some Gesture { // Only triggers if you're dragging on top of emoji
+        if selectedEmojiIDs.contains(emoji.id) { // Check if you're dragging on top of a selected emoji
+            return DragGesture()
+                .updating($emojiGestureDragOffset) { latestDragGestureValue, emojiGestureDragOffset, _ in
+                    emojiGestureDragOffset = latestDragGestureValue.translation / zoomScale
+                }
+                .onEnded { finalDragGestureValue in
+                    for e in document.emojis {
+                        if selectedEmojiIDs.contains(e.id) {
+                            document.moveEmoji(e, by: (finalDragGestureValue.translation / zoomScale))
+                        }
+                    }
+                }
+        } else { // Adds support to pan around if you're dragging on top of a un-selected emoji (this is repeated code from panGesture() that ideally can be re-factored)
+            return DragGesture()
+                .updating($gesturePanOffset) { latestDragGestureValue, gesturePanOffset, _ in
+                    gesturePanOffset = latestDragGestureValue.translation / zoomScale
+                }
+                .onEnded { finalDragGestureValue in
+                    steadyStatePanOffset = steadyStatePanOffset + (finalDragGestureValue.translation / zoomScale)
+                }
+        }
+    }
 
     // MARK: - Selection/Deselection
 
-    @State private var selectedEmojis = Set<Int>()
+    @State private var selectedEmojiIDs = Set<Int>()
 
     private func tapToToggleSelect(for emoji: EmojiArtModel.Emoji) -> some Gesture {
         TapGesture(count: 1)
             .onEnded {
-                if selectedEmojis.remove(emoji.id) == nil {
-                    selectedEmojis.insert(emoji.id)
+                if selectedEmojiIDs.remove(emoji.id) == nil {
+                    selectedEmojiIDs.insert(emoji.id)
                 }
             }
     }
@@ -198,7 +247,7 @@ struct EmojiArtDocumentView: View {
     private func tapToDeselect() -> some Gesture {
         TapGesture(count: 1)
             .onEnded {
-                selectedEmojis = Set<Int>()
+                selectedEmojiIDs = Set<Int>()
             }
     }
 
